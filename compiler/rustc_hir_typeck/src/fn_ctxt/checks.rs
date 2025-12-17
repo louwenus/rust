@@ -1036,7 +1036,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
         let coerce = if blk.targeted_by_break {
             CoerceMany::new(coerce_to_ty)
         } else {
-            CoerceMany::with_coercion_sites(coerce_to_ty, blk.expr.as_slice())
+            CoerceMany::with_coercion_sites(coerce_to_ty, 1)
         };
 
         let prev_diverges = self.diverges.get();

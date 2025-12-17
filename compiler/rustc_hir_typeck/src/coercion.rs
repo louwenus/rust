@@ -1382,28 +1382,23 @@ pub fn can_coerce<'tcx>(
 /// }
 /// let final_ty = coerce.complete(fcx);
 /// ```
-pub(crate) struct CoerceMany<'tcx, 'exprs, E: AsCoercionSite> {
+pub(crate) struct CoerceMany<'tcx> {
     expected_ty: Ty<'tcx>,
     final_ty: Option<Ty<'tcx>>,
-    expressions: Expressions<'tcx, 'exprs, E>,
+    expressions: Vec<&'tcx hir::Expr<'tcx>>,
     pushed: usize,
 }
 
 /// The type of a `CoerceMany` that is storing up the expressions into
 /// a buffer. We use this in `check/mod.rs` for things like `break`.
-pub(crate) type DynamicCoerceMany<'tcx> = CoerceMany<'tcx, 'tcx, &'tcx hir::Expr<'tcx>>;
+pub(crate) type DynamicCoerceMany<'tcx> = CoerceMany<'tcx>;
 
-enum Expressions<'tcx, 'exprs, E: AsCoercionSite> {
-    Dynamic(Vec<&'tcx hir::Expr<'tcx>>),
-    UpFront(&'exprs [E]),
-}
-
-impl<'tcx, 'exprs, E: AsCoercionSite> CoerceMany<'tcx, 'exprs, E> {
+impl<'tcx> CoerceMany<'tcx> {
     /// The usual case; collect the set of expressions dynamically.
     /// If the full set of coercion sites is known before hand,
     /// consider `with_coercion_sites()` instead to avoid allocation.
     pub(crate) fn new(expected_ty: Ty<'tcx>) -> Self {
-        Self::make(expected_ty, Expressions::Dynamic(vec![]))
+        Self::make(expected_ty, Vec::with_capacity(1))
     }
 
     /// As an optimization, you can create a `CoerceMany` with a
@@ -1411,11 +1406,11 @@ impl<'tcx, 'exprs, E: AsCoercionSite> CoerceMany<'tcx, 'exprs, E> {
     /// expected to pass each element in the slice to `coerce(...)` in
     /// order. This is used with arrays in particular to avoid
     /// needlessly cloning the slice.
-    pub(crate) fn with_coercion_sites(expected_ty: Ty<'tcx>, coercion_sites: &'exprs [E]) -> Self {
-        Self::make(expected_ty, Expressions::UpFront(coercion_sites))
+    pub(crate) fn with_coercion_sites(expected_ty: Ty<'tcx>, coercion_sites: usize) -> Self {
+        Self::make(expected_ty, Vec::with_capacity(coercion_sites))
     }
 
-    fn make(expected_ty: Ty<'tcx>, expressions: Expressions<'tcx, 'exprs, E>) -> Self {
+    fn make(expected_ty: Ty<'tcx>, expressions: Vec<&'tcx hir::Expr<'tcx>>) -> Self {
         CoerceMany { expected_ty, final_ty: None, expressions, pushed: 0 }
     }
 
@@ -1541,22 +1536,13 @@ impl<'tcx, 'exprs, E: AsCoercionSite> CoerceMany<'tcx, 'exprs, E> {
                     Some(cause.clone()),
                 )
             } else {
-                match self.expressions {
-                    Expressions::Dynamic(ref exprs) => fcx.try_find_coercion_lub(
-                        cause,
-                        exprs,
-                        self.merged_ty(),
-                        expression,
-                        expression_ty,
-                    ),
-                    Expressions::UpFront(coercion_sites) => fcx.try_find_coercion_lub(
-                        cause,
-                        &coercion_sites[0..self.pushed],
-                        self.merged_ty(),
-                        expression,
-                        expression_ty,
-                    ),
-                }
+                fcx.try_find_coercion_lub(
+                    cause,
+                    &self.expressions,
+                    self.merged_ty(),
+                    expression,
+                    expression_ty,
+                )
             }
         } else {
             // this is a hack for cases where we default to `()` because
@@ -1591,17 +1577,7 @@ impl<'tcx, 'exprs, E: AsCoercionSite> CoerceMany<'tcx, 'exprs, E> {
             Ok(v) => {
                 self.final_ty = Some(v);
                 if let Some(e) = expression {
-                    match self.expressions {
-                        Expressions::Dynamic(ref mut buffer) => buffer.push(e),
-                        Expressions::UpFront(coercion_sites) => {
-                            // if the user gave us an array to validate, check that we got
-                            // the next expression in the list, as expected
-                            assert_eq!(
-                                coercion_sites[self.pushed].as_coercion_site().hir_id,
-                                e.hir_id
-                            );
-                        }
-                    }
+                    self.expressions.push(e);
                     self.pushed += 1;
                 }
             }
