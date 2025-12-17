@@ -1681,7 +1681,7 @@ impl<'a, 'tcx> FnCtxt<'a, 'tcx> {
                 .to_option(self)
                 .and_then(|uty| self.try_structurally_resolve_type(expr.span, uty).builtin_index())
                 .unwrap_or_else(|| self.next_ty_var(expr.span));
-            let mut coerce = CoerceMany::with_coercion_sites(coerce_to, args);
+            let mut coerce = CoerceMany::with_coercion_sites(coerce_to, args.len());
 
             for e in args {
                 let e_ty = self.check_expr_with_hint(e, coerce_to);
